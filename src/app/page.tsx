@@ -148,7 +148,7 @@ export default function Home() {
     }
   }, [transcript, resetTranscript]);
 
-  // Real-time Firestore subscription for the selected date
+  // Real-time Firestore subscription for selected date
   useEffect(() => {
     if (!isMounted) return;
 
@@ -208,10 +208,10 @@ export default function Home() {
       await addFoodLog({
         log_date: getCustomFitnessDate(new Date()),
         food_name: parsed.food_name,
-        calories: parsed.calories,
-        protein_g: parsed.protein_g,
-        carbs_g: parsed.carbs_g,
-        fat_g: parsed.fat_g,
+        calories: Number(parsed.calories),
+        protein_g: Number(parsed.protein_g),
+        carbs_g: Number(parsed.carbs_g),
+        fat_g: Number(parsed.fat_g),
         verification_summary: parsed.verification_summary ?? "",
       });
 
@@ -241,7 +241,7 @@ export default function Home() {
     [handleSubmit]
   );
 
-  // ─── Skeleton for SSR (avoids hydration mismatch) ───
+  // Hydration protection
   if (!isMounted) {
     return (
       <div className="mx-auto flex min-h-dvh max-w-[1400px] flex-col px-4 pb-8">
@@ -259,7 +259,7 @@ export default function Home() {
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[1400px] flex-col px-4 pb-8">
-      {/* ─── Global Header ─── */}
+      {/* Global Header */}
       <header className="sticky top-0 z-20 flex items-center justify-between bg-[#09090b]/90 py-4 backdrop-blur-md">
         <h1 className="text-lg font-semibold tracking-tight text-zinc-100">
           MacroTrack
@@ -292,21 +292,18 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ─── Date subtitle (mobile only) ─── */}
+      {/* Date Subtitle (Mobile) */}
       <p className="mb-4 text-[11px] text-zinc-500 lg:hidden">{displayDate}</p>
 
-      {/* ─── 3-Column Dashboard ─── */}
+      {/* 3-Column Dashboard */}
       <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* ═══ LEFT COLUMN — Profile & Targets ═══ */}
+        {/* LEFT COLUMN — Profile & Targets */}
         <aside className="flex flex-col gap-4 lg:col-span-3">
-          {/* Profile Card */}
           <div className="flex flex-col items-center gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-5">
-            {/* Avatar */}
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800 ring-2 ring-zinc-700/50">
               <User size={28} className="text-zinc-500" />
             </div>
 
-            {/* User Info */}
             <div className="text-center">
               <p className="text-sm font-medium text-zinc-200">Athlete</p>
               <span className="mt-1 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
@@ -314,9 +311,7 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Stats */}
             <div className="w-full space-y-2">
-              {/* Height */}
               <div className="flex items-center justify-between rounded-lg bg-zinc-800/40 px-3 py-2">
                 <span className="text-[11px] text-zinc-500">Height</span>
                 <span className="text-xs font-medium text-zinc-300">
@@ -324,7 +319,6 @@ export default function Home() {
                 </span>
               </div>
 
-              {/* Weight (adjustable) */}
               <div className="flex items-center justify-between rounded-lg bg-zinc-800/40 px-3 py-2">
                 <span className="text-[11px] text-zinc-500">Weight</span>
                 <div className="flex items-center gap-2">
@@ -344,7 +338,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Target Macro Progress */}
           <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-4">
             <div className="mb-3 flex items-center gap-1.5">
               <Target size={13} className="text-emerald-500" />
@@ -389,14 +382,12 @@ export default function Home() {
           </div>
         </aside>
 
-        {/* ═══ CENTER COLUMN — Food Tracker ═══ */}
+        {/* CENTER COLUMN — Food Tracker */}
         <main className="flex flex-col gap-4 lg:col-span-6">
-          {/* Date subtitle (desktop) */}
           <p className="hidden text-[11px] text-zinc-500 lg:block">
             {displayDate}
           </p>
 
-          {/* Input Section */}
           <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3">
             <div className="flex items-end gap-2">
               <textarea
@@ -455,7 +446,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Meal History */}
           <div className="flex-1">
             <div className="mb-3 flex items-center gap-2">
               <UtensilsCrossed size={14} className="text-zinc-600" />
@@ -487,9 +477,8 @@ export default function Home() {
           </div>
         </main>
 
-        {/* ═══ RIGHT COLUMN — Gemini Verification ═══ */}
+        {/* RIGHT COLUMN — Gemini Verification & Summary */}
         <aside className="flex flex-col gap-4 lg:col-span-3">
-          {/* Verification Card */}
           <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-4">
             <div className="mb-3 flex items-center gap-1.5">
               <ShieldCheck size={13} className="text-violet-400" />
@@ -500,7 +489,6 @@ export default function Home() {
 
             {latestLog && latestLog.verification_summary ? (
               <div className="space-y-3">
-                {/* Latest meal label */}
                 <div className="rounded-lg bg-zinc-800/40 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wider text-zinc-600">
                     Latest meal
@@ -510,12 +498,10 @@ export default function Home() {
                   </p>
                 </div>
 
-                {/* Verification text */}
                 <p className="text-xs leading-relaxed text-zinc-400">
                   {latestLog.verification_summary}
                 </p>
 
-                {/* Confidence badge */}
                 <div className="flex items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
                     <ShieldCheck size={10} />
@@ -526,7 +512,6 @@ export default function Home() {
                   </span>
                 </div>
 
-                {/* Macro breakdown */}
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
                     {
@@ -580,7 +565,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Today's Summary Card */}
           <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-4">
             <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
               Today&apos;s Summary
@@ -627,7 +611,6 @@ export default function Home() {
         </aside>
       </div>
 
-      {/* ─── Footer ─── */}
       <footer className="mt-8 border-t border-zinc-900 pt-4 text-center">
         <p className="text-[10px] text-zinc-700">
           MacroTrack · All data synced in real-time via Firestore

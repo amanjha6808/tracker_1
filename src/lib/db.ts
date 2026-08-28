@@ -1,150 +1,115 @@
 import {
   collection,
+  query,
+  where,
+  onSnapshot,
   addDoc,
   deleteDoc,
   doc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  Timestamp,
 } from "firebase/firestore";
-import { db as firestore } from "./firebase";
+import { db } from "./firebase";
 
-// --- Fitness Date Helper (3:00 AM Cutoff) ---
-
-/**
- * Returns the YYYY-MM-DD date string for the "fitness day" that contains
- * the given Date. A fitness day runs from 3:00 AM to 2:59 AM next day.
- * If the current time is before 3 AM, the date belongs to the previous day.
- */
-export function getCustomFitnessDate(date: Date): string {
-  const adjusted = new Date(date);
-  if (adjusted.getHours() < 3) {
-    adjusted.setDate(adjusted.getDate() - 1);
-  }
-  return adjusted.toISOString().split("T")[0]; // YYYY-MM-DD
-}
-
-/**
- * Get today's fitness date string.
- */
-export function getTodayFitnessDate(): string {
-  return getCustomFitnessDate(new Date());
-}
-
-/**
- * Shift a YYYY-MM-DD date string by `offset` days and return the new string.
- */
-export function shiftFitnessDate(dateStr: string, offset: number): string {
-  const d = new Date(dateStr + "T12:00:00"); // noon to avoid DST edge cases
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().split("T")[0];
-}
-
-/**
- * Format a YYYY-MM-DD date string for display (e.g. "Mon, Aug 25").
- */
-export function formatDateDisplay(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-// --- Lean Bulk Macro Calculator ---
-
-export interface MacroTargets {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-}
-
-/**
- * Calculate daily macro targets for a lean bulk based on body weight (kg).
- * Uses ~35 kcal/kg, 2.2g protein/kg, remainder split ~50/20 carbs/fat.
- */
-export function calculateLeanBulkTargets(weightKg: number): MacroTargets {
-  const calories = Math.round(weightKg * 35);
-  const protein = Math.round(weightKg * 2.2);
-  const fat = Math.round((calories * 0.2) / 9);
-  const carbs = Math.round((calories - protein * 4 - fat * 9) / 4);
-  return { calories, protein, carbs, fat };
-}
-
-// --- Firestore Types ---
-
+// ─── Interfaces ───
 export interface FoodLog {
   id: string;
-  created_at: string;
-  log_date: string; // YYYY-MM-DD (fitness day)
-  food_name: string;
-  calories: number;
-  protein_g: number;
-  carbs_g: number;
-  fat_g: number;
-  verification_summary: string;
-}
-
-/** Shape of documents stored in Firestore (no client-side `id` field). */
-interface FoodLogDoc {
-  created_at: string;
   log_date: string;
   food_name: string;
   calories: number;
   protein_g: number;
   carbs_g: number;
   fat_g: number;
-  verification_summary: string;
+  verification_summary?: string;
+  created_at?: string;
 }
 
-// --- Firestore CRUD ---
-
-const FOOD_LOGS = "foodLogs";
-
-/**
- * Subscribe to real-time updates for a given fitness date.
- * Returns an unsubscribe function. `onChange` is called with the latest list
- * of FoodLog entries (newest-first by `created_at`).
- */
+// ─── Firestore Subscriptions & Mutations ───
 export function subscribeFoodLogs(
-  logDate: string,
-  onChange: (logs: FoodLog[]) => void
-): () => void {
+  dateString: string,
+  callback: (logs: FoodLog[]) => void
+) {
+  // Query ONLY by log_date — no orderBy (bypasses index requirement)
   const q = query(
-    collection(firestore, FOOD_LOGS),
-    where("log_date", "==", logDate),
-    orderBy("created_at", "desc")
+    collection(db, "foodLogs"),
+    where("log_date", "==", dateString)
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const logs: FoodLog[] = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as FoodLogDoc),
-    }));
-    onChange(logs);
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const logs = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<FoodLog, "id">),
+      }));
+
+      // Sort client-side by created_at (newest first)
+      logs.sort((a, b) => {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      callback(logs);
+    },
+    (error) => {
+      console.error("Firestore subscription error:", error);
+    }
+  );
+}
+
+export async function addFoodLog(log: Omit<FoodLog, "id">) {
+  return await addDoc(collection(db, "foodLogs"), {
+    ...log,
+    created_at: new Date().toISOString(),
   });
 }
 
-/**
- * Add a new food log entry to Firestore.
- */
-export async function addFoodLog(
-  entry: Omit<FoodLogDoc, "created_at"> & { created_at?: string }
-): Promise<string> {
-  const docRef = await addDoc(collection(firestore, FOOD_LOGS), {
-    ...entry,
-    created_at: entry.created_at ?? new Date().toISOString(),
-  });
-  return docRef.id;
+export async function deleteFoodLog(id: string) {
+  return await deleteDoc(doc(db, "foodLogs", id));
 }
 
-/**
- * Delete a food log entry by its Firestore document ID.
- */
-export async function deleteFoodLog(id: string): Promise<void> {
-  await deleteDoc(doc(firestore, FOOD_LOGS, id));
+// ─── Missing Exports & Utility Functions ───
+
+export function calculateLeanBulkTargets(weightKg: number) {
+  return {
+    calories: Math.round(weightKg * 33),
+    protein: Math.round(weightKg * 2),
+    carbs: Math.round(weightKg * 4),
+    fat: Math.round(weightKg * 0.9),
+  };
+}
+
+export function getCustomFitnessDate(date: Date = new Date()): string {
+  const d = new Date(date);
+  if (d.getHours() < 3) {
+    d.setDate(d.getDate() - 1);
+  }
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function getTodayFitnessDate(): string {
+  return getCustomFitnessDate(new Date());
+}
+
+export function shiftFitnessDate(dateStr: string, days: number): string {
+  if (!dateStr) return getTodayFitnessDate();
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function formatDateDisplay(dateStr: string): string {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
