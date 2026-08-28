@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "MacroTrack — AI Macro Logger",
   description:
-    "AI-powered macro and calorie tracker with local-first storage. Log meals instantly with voice or text.",
+    "AI-powered macro and calorie tracker with real-time cloud sync. Log meals instantly with voice or text.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

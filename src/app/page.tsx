@@ -1,15 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
 import {
-  db,
   type FoodLog,
   calculateLeanBulkTargets,
   getCustomFitnessDate,
   getTodayFitnessDate,
   shiftFitnessDate,
   formatDateDisplay,
+  subscribeFoodLogs,
+  addFoodLog,
+  deleteFoodLog,
 } from "@/lib/db";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import {
@@ -89,7 +90,7 @@ function MealItem({
   onDelete,
 }: {
   log: FoodLog;
-  onDelete: (id: number) => void;
+  onDelete: (id: string) => void;
 }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-lg border border-zinc-800/50 bg-zinc-900/30 px-3 py-2.5 transition-colors hover:bg-zinc-900/50">
@@ -105,7 +106,7 @@ function MealItem({
         </div>
       </div>
       <button
-        onClick={() => log.id != null && onDelete(log.id)}
+        onClick={() => onDelete(log.id)}
         className="mt-0.5 shrink-0 rounded-md p-1.5 text-zinc-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
         aria-label="Delete meal"
       >
@@ -124,6 +125,7 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState(getTodayFitnessDate);
   const [todayDate, setTodayDate] = useState(getTodayFitnessDate);
   const [weightKg, setWeightKg] = useState(61);
+  const [logs, setLogs] = useState<FoodLog[]>([]);
 
   const {
     transcript,
@@ -146,20 +148,16 @@ export default function Home() {
     }
   }, [transcript, resetTranscript]);
 
-  // Live query logs for the selected date
-  // Guard: skip IndexedDB during SSR so Dexie never touches window.indexedDB
-  const logs =
-    useLiveQuery<FoodLog[]>(
-      () => {
-        if (typeof window === "undefined" || !db?.foodLogs) return [];
-        return db.foodLogs
-          .where("log_date")
-          .equals(selectedDate)
-          .reverse()
-          .sortBy("id");
-      },
-      [selectedDate]
-    ) ?? [];
+  // Real-time Firestore subscription for the selected date
+  useEffect(() => {
+    if (!isMounted) return;
+
+    const unsub = subscribeFoodLogs(selectedDate, (newLogs) => {
+      setLogs(newLogs);
+    });
+
+    return () => unsub();
+  }, [selectedDate, isMounted]);
 
   // Compute totals
   const totals = logs.reduce(
@@ -207,18 +205,15 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "Failed to parse food.");
       const parsed = data;
 
-      if (typeof window !== "undefined" && db?.foodLogs) {
-        await db.foodLogs.add({
-          created_at: new Date().toISOString(),
-          log_date: getCustomFitnessDate(new Date()),
-          food_name: parsed.food_name,
-          calories: parsed.calories,
-          protein_g: parsed.protein_g,
-          carbs_g: parsed.carbs_g,
-          fat_g: parsed.fat_g,
-          verification_summary: parsed.verification_summary ?? "",
-        });
-      }
+      await addFoodLog({
+        log_date: getCustomFitnessDate(new Date()),
+        food_name: parsed.food_name,
+        calories: parsed.calories,
+        protein_g: parsed.protein_g,
+        carbs_g: parsed.carbs_g,
+        fat_g: parsed.fat_g,
+        verification_summary: parsed.verification_summary ?? "",
+      });
 
       setInputText("");
       setSelectedDate(getCustomFitnessDate(new Date()));
@@ -232,10 +227,8 @@ export default function Home() {
     }
   }, [inputText, isLoading]);
 
-  const handleDelete = useCallback(async (id: number) => {
-    if (typeof window !== "undefined" && db?.foodLogs) {
-      await db.foodLogs.delete(id);
-    }
+  const handleDelete = useCallback(async (id: string) => {
+    await deleteFoodLog(id);
   }, []);
 
   const handleKeyDown = useCallback(
@@ -637,7 +630,7 @@ export default function Home() {
       {/* ─── Footer ─── */}
       <footer className="mt-8 border-t border-zinc-900 pt-4 text-center">
         <p className="text-[10px] text-zinc-700">
-          MacroTrack · All data stored locally on your device
+          MacroTrack · All data synced in real-time via Firestore
         </p>
       </footer>
     </div>

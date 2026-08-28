@@ -1,4 +1,15 @@
-import Dexie, { type EntityTable } from "dexie";
+import {
+  collection,
+  addDoc,
+  deleteDoc,
+  doc,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  Timestamp,
+} from "firebase/firestore";
+import { db as firestore } from "./firebase";
 
 // --- Fitness Date Helper (3:00 AM Cutoff) ---
 
@@ -64,10 +75,10 @@ export function calculateLeanBulkTargets(weightKg: number): MacroTargets {
   return { calories, protein, carbs, fat };
 }
 
-// --- Dexie Database ---
+// --- Firestore Types ---
 
 export interface FoodLog {
-  id?: number;
+  id: string;
   created_at: string;
   log_date: string; // YYYY-MM-DD (fitness day)
   food_name: string;
@@ -78,47 +89,62 @@ export interface FoodLog {
   verification_summary: string;
 }
 
-export interface FoodCacheEntry {
-  key: string; // trimmed lowercased input
-  macros: string; // JSON string of ParsedFood
+/** Shape of documents stored in Firestore (no client-side `id` field). */
+interface FoodLogDoc {
   created_at: string;
+  log_date: string;
+  food_name: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  verification_summary: string;
 }
 
-class MacroDatabase extends Dexie {
-  foodLogs!: EntityTable<FoodLog, "id">;
-  foodCache!: EntityTable<FoodCacheEntry, "key">;
+// --- Firestore CRUD ---
 
-  constructor() {
-    super("MacroTrackerDB");
+const FOOD_LOGS = "foodLogs";
 
-    this.version(1).stores({
-      foodLogs: "++id, log_date, created_at",
-    });
+/**
+ * Subscribe to real-time updates for a given fitness date.
+ * Returns an unsubscribe function. `onChange` is called with the latest list
+ * of FoodLog entries (newest-first by `created_at`).
+ */
+export function subscribeFoodLogs(
+  logDate: string,
+  onChange: (logs: FoodLog[]) => void
+): () => void {
+  const q = query(
+    collection(firestore, FOOD_LOGS),
+    where("log_date", "==", logDate),
+    orderBy("created_at", "desc")
+  );
 
-    this.version(2)
-      .stores({
-        foodLogs: "++id, log_date, created_at",
-      })
-      .upgrade(async (tx) => {
-        await tx
-          .table("foodLogs")
-          .toCollection()
-          .modify((log: any) => {
-            log.verification_summary = log.verification_summary ?? "";
-          });
-      });
-
-    this.version(3).stores({
-      foodLogs: "++id, log_date, created_at",
-      foodCache: "key",
-    });
-  }
+  return onSnapshot(q, (snapshot) => {
+    const logs: FoodLog[] = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as FoodLogDoc),
+    }));
+    onChange(logs);
+  });
 }
 
-// Only instantiate Dexie when running in the browser.
-// On the server (SSR / Turbopack evaluation) window is undefined and
-// IndexedDB does not exist, so we export an empty object instead.
-export const db: MacroDatabase =
-  typeof window !== "undefined"
-    ? new MacroDatabase()
-    : ({} as MacroDatabase);
+/**
+ * Add a new food log entry to Firestore.
+ */
+export async function addFoodLog(
+  entry: Omit<FoodLogDoc, "created_at"> & { created_at?: string }
+): Promise<string> {
+  const docRef = await addDoc(collection(firestore, FOOD_LOGS), {
+    ...entry,
+    created_at: entry.created_at ?? new Date().toISOString(),
+  });
+  return docRef.id;
+}
+
+/**
+ * Delete a food log entry by its Firestore document ID.
+ */
+export async function deleteFoodLog(id: string): Promise<void> {
+  await deleteDoc(doc(firestore, FOOD_LOGS, id));
+}

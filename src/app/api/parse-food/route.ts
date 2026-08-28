@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { parseFoodWithGemini } from "@/lib/gemini";
-import { db } from "@/lib/db";
 
 /**
  * Normalize input for consistent cache keying:
@@ -22,28 +21,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const cacheKey = normalizeInput(text);
-
-    // Check local cache first (only available in the browser via IndexedDB)
-    if (db?.foodCache) {
-      const cached = await db.foodCache.get(cacheKey);
-      if (cached) {
-        const macros = JSON.parse(cached.macros);
-        return NextResponse.json(macros);
-      }
-    }
-
-    // Cache miss — call Gemini
+    // Call Gemini to parse the food
     const parsed = await parseFoodWithGemini(text.trim());
-
-    // Store in cache (only available in the browser via IndexedDB)
-    if (db?.foodCache) {
-      await db.foodCache.put({
-        key: cacheKey,
-        macros: JSON.stringify(parsed),
-        created_at: new Date().toISOString(),
-      });
-    }
 
     return NextResponse.json(parsed);
   } catch (err) {
