@@ -8,9 +8,6 @@ import {
   getTodayFitnessDate,
   shiftFitnessDate,
   formatDateDisplay,
-  subscribeFoodLogs,
-  addFoodLog,
-  deleteFoodLog,
 } from "@/lib/db";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import {
@@ -90,7 +87,7 @@ function MealItem({
   onDelete,
 }: {
   log: FoodLog;
-  onDelete: (id: string) => void;
+  onDelete: (id: number) => void;
 }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-lg border border-zinc-800/50 bg-zinc-900/30 px-3 py-2.5 transition-colors hover:bg-zinc-900/50">
@@ -137,6 +134,18 @@ export default function Home() {
     resetTranscript,
   } = useSpeechRecognition();
 
+  // Fetch logs for the currently selected date.
+  const fetchLogs = useCallback(async (dateString: string) => {
+    try {
+      const res = await fetch(`/api/logs?date=${encodeURIComponent(dateString)}`);
+      if (!res.ok) throw new Error("Failed to fetch logs");
+      const data: FoodLog[] = await res.json();
+      setLogs(data);
+    } catch (err) {
+      console.error("Failed to fetch food logs:", err);
+    }
+  }, []);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -148,16 +157,11 @@ export default function Home() {
     }
   }, [transcript, resetTranscript]);
 
-  // Real-time Firestore subscription for selected date
+  // Fetch logs whenever the selected date changes.
   useEffect(() => {
     if (!isMounted) return;
-
-    const unsub = subscribeFoodLogs(selectedDate, (newLogs) => {
-      setLogs(newLogs);
-    });
-
-    return () => unsub();
-  }, [selectedDate, isMounted]);
+    fetchLogs(selectedDate);
+  }, [selectedDate, isMounted, fetchLogs]);
 
   // Compute totals
   const totals = logs.reduce(
@@ -205,18 +209,25 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "Failed to parse food.");
       const parsed = data;
 
-      await addFoodLog({
-        log_date: getCustomFitnessDate(new Date()),
-        food_name: parsed.food_name,
-        calories: Number(parsed.calories),
-        protein_g: Number(parsed.protein_g),
-        carbs_g: Number(parsed.carbs_g),
-        fat_g: Number(parsed.fat_g),
-        verification_summary: parsed.verification_summary ?? "",
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          log_date: getCustomFitnessDate(new Date()),
+          food_name: parsed.food_name,
+          calories: Number(parsed.calories),
+          protein_g: Number(parsed.protein_g),
+          carbs_g: Number(parsed.carbs_g),
+          fat_g: Number(parsed.fat_g),
+          verification_summary: parsed.verification_summary ?? "",
+        }),
       });
 
       setInputText("");
-      setSelectedDate(getCustomFitnessDate(new Date()));
+      const newDate = getCustomFitnessDate(new Date());
+      setSelectedDate(newDate);
+      // Re-fetch logs for the newly selected date.
+      fetchLogs(newDate);
     } catch (err) {
       console.error(err);
       setLoadingMsg("Something went wrong. Try again.");
@@ -225,11 +236,26 @@ export default function Home() {
       setIsLoading(false);
       setLoadingMsg("");
     }
-  }, [inputText, isLoading]);
+  }, [inputText, isLoading, fetchLogs]);
 
-  const handleDelete = useCallback(async (id: string) => {
-    await deleteFoodLog(id);
-  }, []);
+  const handleDelete = useCallback(
+    async (id: number) => {
+      try {
+        const res = await fetch(`/api/logs?id=${encodeURIComponent(id)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to delete meal.");
+        }
+        // Re-fetch the logs for the currently selected date.
+        await fetchLogs(selectedDate);
+      } catch (err) {
+        console.error("Failed to delete meal:", err);
+      }
+    },
+    [fetchLogs, selectedDate]
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -613,7 +639,7 @@ export default function Home() {
 
       <footer className="mt-8 border-t border-zinc-900 pt-4 text-center">
         <p className="text-[10px] text-zinc-700">
-          MacroTrack · All data synced in real-time via Firestore
+          MacroTrack · All data synced in real-time via Neon PostgreSQL
         </p>
       </footer>
     </div>
